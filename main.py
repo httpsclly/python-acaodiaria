@@ -2,8 +2,24 @@ import mariadb
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
+
+# Definindo as origens permitidas
+origins = [
+    "http://localhost:8100",  # Permitir o acesso da sua aplicação Ionic
+    "http://127.0.0.1:8000",  # Adicione outras origens, se necessário
+]
+
+# Adicionando o middleware CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,  # Pode usar ["*"] para permitir todas as origens
+    allow_credentials=True,
+    allow_methods=["*"],  # Permite todos os métodos (GET, POST, etc.)
+    allow_headers=["*"],  # Permite todos os cabeçalhos
+)
 
 # Conexão com o banco de dados MariaDB
 def get_db_connection():
