@@ -15,3 +15,12 @@ class UserCreate(BaseModel):
 class UserUpdate(BaseModel):
     username: str = None
     email: str = None
+
+class UserResponse(BaseModel):
+    id: int
+    username: str
+    email: str
+
+    class Config:
+        orm_mode = True  # Permite que o Pydantic converta os modelos ORM para dicionários
+

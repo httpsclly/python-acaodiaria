@@ -1,6 +1,8 @@
 from typing import List
 from models import Task, User
 from schemas import TaskCreate, TaskUpdate, UserCreate, UserUpdate
+from sqlalchemy.orm import Session
+
 
 class TaskCRUD:
     def __init__(self):
@@ -71,3 +73,9 @@ class UserCRUD:
             self.users.remove(user)
             return True
         return False
+    def create_user(self, user: UserCreate, db: Session) -> User:
+        db_user = User(username=user.username, email=user.email, password=user.password)
+        db.add(db_user)
+        db.commit()
+        db.refresh(db_user)
+        return db_user

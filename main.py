@@ -1,14 +1,29 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
+from sqlalchemy.orm import Session
 from typing import List
-from models import Task, User
+from models import Task, User, UserCreate, UserResponse
 from crud import TaskCRUD, UserCRUD
-from schemas import TaskCreate, TaskUpdate, UserCreate, UserUpdate
+from schemas import TaskCreate, TaskUpdate, UserCreate, UserUpdate, UserResponse
+from database import SessionLocal, engine  
+from passlib.context import CryptContext
+
 
 app = FastAPI()
 
 # Inicializa o CRUD de tarefas e usuários
 task_crud = TaskCRUD()
 user_crud = UserCRUD()
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+# Função para obter a sessão do banco de dados
+def get_db() -> Session:
+    db = SessionLocal()  # Cria uma nova sessão
+    try:
+        yield db  # Retorna a sessão para ser usada na rota
+    finally:
+        db.close()  # Garante que a sessão seja fechada após o uso
 
 # Rotas de tarefas
 @app.post("/tasks/", response_model=Task)
@@ -69,3 +84,26 @@ async def delete_user(user_id: int):
     if not success:
         raise HTTPException(status_code=404, detail="User not found")
     return {"message": "User deleted successfully"}
+
+@app.post("/register/", response_model=UserResponse)
+async def create_user(user: UserCreate, db: Session = Depends(get_db)):
+    # Verifique se o usuário já existe
+    existing_user = db.query(User).filter((User.email == user.email) | (User.username == user.username)).first()
+    
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Email ou nome de usuário já cadastrado")
+
+    # Criptografe a senha
+    hashed_password = pwd_context.hash(user.senha)
+
+    # Crie o novo usuário
+    new_user = User(username=user.username, email=user.email, password=hashed_password)
+    db.add(new_user)
+    
+    try:
+        db.commit()
+        db.refresh(new_user)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao registrar usuário: {str(e)}")
+
+    return UserResponse(username=new_user.username, email=new_user.email)
