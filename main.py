@@ -1,109 +1,189 @@
-from fastapi import FastAPI, HTTPException, Depends
-from sqlalchemy.orm import Session
-from typing import List
-from models import Task, User, UserCreate, UserResponse
-from crud import TaskCRUD, UserCRUD
-from schemas import TaskCreate, TaskUpdate, UserCreate, UserUpdate, UserResponse
-from database import SessionLocal, engine  
-from passlib.context import CryptContext
-
+import mariadb
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+from typing import List, Optional
 
 app = FastAPI()
 
-# Inicializa o CRUD de tarefas e usuários
-task_crud = TaskCRUD()
-user_crud = UserCRUD()
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-
-# Função para obter a sessão do banco de dados
-def get_db() -> Session:
-    db = SessionLocal()  # Cria uma nova sessão
+# Conexão com o banco de dados MariaDB
+def get_db_connection():
     try:
-        yield db  # Retorna a sessão para ser usada na rota
+        conn = mariadb.connect(
+            user="root",      
+            password="",    
+            host="127.0.0.1",
+            port=3306,
+            database="task_manager"  
+        )
+        return conn
+    except mariadb.Error as e:
+        print(f"Erro ao conectar ao banco de dados: {e}")
+        raise HTTPException(status_code=500, detail="Erro no banco de dados.")
+
+# Modelos de dados
+class User(BaseModel):
+    username: str
+    email: str
+    password: str
+
+class Task(BaseModel):
+    title: str
+    description: Optional[str] = None
+    color: Optional[str] = None
+    completed: bool = False
+    start_time: Optional[str] = None
+    end_time: Optional[str] = None
+    owner_id: int
+
+# CRUD para Users
+@app.post("/users/")
+def create_user(user: User):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute(
+            "INSERT INTO users (username, email, password) VALUES (?, ?, ?)",
+            (user.username, user.email, user.password)
+        )
+        conn.commit()
+        return {"message": "Usuário cadastrado com sucesso!"}
+    except mariadb.Error as e:
+        print(f"Erro ao inserir usuário: {e}")
+        raise HTTPException(status_code=500, detail="Erro ao cadastrar usuário.")
     finally:
-        db.close()  # Garante que a sessão seja fechada após o uso
+        cursor.close()
+        conn.close()
 
-# Rotas de tarefas
-@app.post("/tasks/", response_model=Task)
-async def create_task(task: TaskCreate):
-    return task_crud.create_task(task)
+@app.get("/users/")
+def list_users():
+    conn = get_db_connection()
+    cursor = conn.cursor()
 
-@app.get("/tasks/", response_model=List[Task])
-async def read_tasks():
-    return task_crud.get_tasks()
-
-@app.get("/tasks/{task_id}", response_model=Task)
-async def read_task(task_id: int):
-    task = task_crud.get_task(task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    return task
-
-@app.put("/tasks/{task_id}", response_model=Task)
-async def update_task(task_id: int, task_update: TaskUpdate):
-    task = task_crud.update_task(task_id, task_update)
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    return task
-
-@app.delete("/tasks/{task_id}", response_model=dict)
-async def delete_task(task_id: int):
-    success = task_crud.delete_task(task_id)
-    if not success:
-        raise HTTPException(status_code=404, detail="Task not found")
-    return {"message": "Task deleted successfully"}
-
-# Rotas de usuários
-@app.post("/users/", response_model=User)
-async def create_user(user: UserCreate):
-    return user_crud.create_user(user)
-
-@app.get("/users/", response_model=List[User])
-async def read_users():
-    return user_crud.get_users()
-
-@app.get("/users/{user_id}", response_model=User)
-async def read_user(user_id: int):
-    user = user_crud.get_user(user_id)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    return user
-
-@app.put("/users/{user_id}", response_model=User)
-async def update_user(user_id: int, user_update: UserUpdate):
-    user = user_crud.update_user(user_id, user_update)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    return user
-
-@app.delete("/users/{user_id}", response_model=dict)
-async def delete_user(user_id: int):
-    success = user_crud.delete_user(user_id)
-    if not success:
-        raise HTTPException(status_code=404, detail="User not found")
-    return {"message": "User deleted successfully"}
-
-@app.post("/register/", response_model=UserResponse)
-async def create_user(user: UserCreate, db: Session = Depends(get_db)):
-    # Verifique se o usuário já existe
-    existing_user = db.query(User).filter((User.email == user.email) | (User.username == user.username)).first()
-    
-    if existing_user:
-        raise HTTPException(status_code=400, detail="Email ou nome de usuário já cadastrado")
-
-    # Criptografe a senha
-    hashed_password = pwd_context.hash(user.senha)
-
-    # Crie o novo usuário
-    new_user = User(username=user.username, email=user.email, password=hashed_password)
-    db.add(new_user)
-    
     try:
-        db.commit()
-        db.refresh(new_user)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao registrar usuário: {str(e)}")
+        cursor.execute("SELECT id, username, email FROM users")
+        users = cursor.fetchall()
+        return [{"id": u[0], "username": u[1], "email": u[2]} for u in users]
+    except mariadb.Error as e:
+        print(f"Erro ao listar usuários: {e}")
+        raise HTTPException(status_code=500, detail="Erro ao listar usuários.")
+    finally:
+        cursor.close()
+        conn.close()
 
-    return UserResponse(username=new_user.username, email=new_user.email)
+@app.put("/users/{user_id}")
+def update_user(user_id: int, user: User):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute(
+            "UPDATE users SET username = ?, email = ?, password = ? WHERE id = ?",
+            (user.username, user.email, user.password, user_id)
+        )
+        conn.commit()
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Usuário não encontrado.")
+        return {"message": "Usuário atualizado com sucesso!"}
+    except mariadb.Error as e:
+        print(f"Erro ao atualizar usuário: {e}")
+        raise HTTPException(status_code=500, detail="Erro ao atualizar usuário.")
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.delete("/users/{user_id}")
+def delete_user(user_id: int):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
+        conn.commit()
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Usuário não encontrado.")
+        return {"message": "Usuário excluído com sucesso!"}
+    except mariadb.Error as e:
+        print(f"Erro ao excluir usuário: {e}")
+        raise HTTPException(status_code=500, detail="Erro ao excluir usuário.")
+    finally:
+        cursor.close()
+        conn.close()
+
+# CRUD para Tasks
+@app.post("/tasks/")
+def create_task(task: Task):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute(
+            """INSERT INTO tasks (title, description, color, completed, start_time, end_time, owner_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (task.title, task.description, task.color, task.completed, task.start_time, task.end_time, task.owner_id)
+        )
+        conn.commit()
+        return {"message": "Tarefa criada com sucesso!"}
+    except mariadb.Error as e:
+        print(f"Erro ao inserir tarefa: {e}")
+        raise HTTPException(status_code=500, detail="Erro ao criar tarefa.")
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.get("/tasks/")
+def list_tasks():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute("SELECT id, title, description, color, completed, start_time, end_time, owner_id FROM tasks")
+        tasks = cursor.fetchall()
+        return [{"id": t[0], "title": t[1], "description": t[2], "color": t[3], "completed": t[4], 
+                 "start_time": t[5], "end_time": t[6], "owner_id": t[7]} for t in tasks]
+    except mariadb.Error as e:
+        print(f"Erro ao listar tarefas: {e}")
+        raise HTTPException(status_code=500, detail="Erro ao listar tarefas.")
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.put("/tasks/{task_id}")
+def update_task(task_id: int, task: Task):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute(
+            """UPDATE tasks SET title = ?, description = ?, color = ?, completed = ?, start_time = ?, end_time = ?
+               WHERE id = ?""",
+            (task.title, task.description, task.color, task.completed, task.start_time, task.end_time, task_id)
+        )
+        conn.commit()
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Tarefa não encontrada.")
+        return {"message": "Tarefa atualizada com sucesso!"}
+    except mariadb.Error as e:
+        print(f"Erro ao atualizar tarefa: {e}")
+        raise HTTPException(status_code=500, detail="Erro ao atualizar tarefa.")
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.delete("/tasks/{task_id}")
+def delete_task(task_id: int):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+        conn.commit()
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Tarefa não encontrada.")
+        return {"message": "Tarefa excluída com sucesso!"}
+    except mariadb.Error as e:
+        print(f"Erro ao excluir tarefa: {e}")
+        raise HTTPException(status_code=500, detail="Erro ao excluir tarefa.")
+    finally:
+        cursor.close()
+        conn.close()
