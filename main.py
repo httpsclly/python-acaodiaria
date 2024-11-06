@@ -21,6 +21,8 @@ app.add_middleware(
     allow_headers=["*"],  # Permite todos os cabeçalhos
 )
 
+
+
 # Conexão com o banco de dados MariaDB
 def get_db_connection():
     try:
