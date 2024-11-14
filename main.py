@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 from fastapi.middleware.cors import CORSMiddleware
 
+
 app = FastAPI()
 
 # Definindo as origens permitidas
@@ -15,10 +16,10 @@ origins = [
 # Adicionando o middleware CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,  # Pode usar ["*"] para permitir todas as origens
+     allow_origins=["*"],  
     allow_credentials=True,
-    allow_methods=["*"],  # Permite todos os métodos (GET, POST, etc.)
-    allow_headers=["*"],  # Permite todos os cabeçalhos
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
